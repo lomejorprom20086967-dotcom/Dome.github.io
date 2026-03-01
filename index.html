@@ -1,0 +1,469 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { Download, Trash2, Calendar, ClipboardList, CheckCircle2, Save, Coffee, Image as ImageIcon, X, Maximize2, AlertCircle, Sparkles, Clock, FileText, UserCheck, TrendingUp, Zap, ArrowRight, Inbox, Star } from 'lucide-react';
+
+const App = () => {
+  const currentYear = new Date().getFullYear();
+  const currentMonth = new Date().getMonth();
+
+  const [year, setYear] = useState(currentYear);
+  const [month, setMonth] = useState(currentMonth);
+  const [data, setData] = useState({});
+  const [showToast, setShowToast] = useState(false);
+  const [toastMsg, setToastMsg] = useState('');
+  const [previewImage, setPreviewImage] = useState(null);
+
+  const daysInMonth = useMemo(() => {
+    return new Date(year, month + 1, 0).getDate();
+  }, [year, month]);
+
+  const storageKey = `monthly_planner_v12_2_${year}_${month}`;
+
+  useEffect(() => {
+    const savedData = localStorage.getItem(storageKey);
+    if (savedData) {
+      setData(JSON.parse(savedData));
+    } else {
+      setData({});
+    }
+  }, [storageKey]);
+
+  const getMinutes = (timeStr) => {
+    if (!timeStr) return 0;
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
+  };
+
+  const stats = useMemo(() => {
+    let restDays = 0;
+    let leaveHours = 0;
+
+    for (let i = 1; i <= daysInMonth; i++) {
+      if (data[`${i}-rest`]) restDays++;
+      
+      if (data[`${i}-leave`]) {
+        const start = data[`${i}-leave-start`];
+        const end = data[`${i}-leave-end`];
+        if (start && end) {
+          const diff = getMinutes(end) - getMinutes(start);
+          if (diff > 0) leaveHours += diff / 60;
+        }
+      }
+    }
+    return { restDays, leaveHours: leaveHours.toFixed(1) };
+  }, [data, daysInMonth]);
+
+  const getDayInfo = (d) => {
+    const date = new Date(year, month, d);
+    const dayOfWeek = date.getDay();
+    const weekNames = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    const dateStr = `${month + 1}-${d}`;
+    const fullDateStr = `${year}-${month + 1}-${d}`;
+
+    const holidays = { "1-1": "元旦", "5-1": "劳动节", "10-1": "国庆", "12-25": "圣诞" };
+    const specialHolidays = {
+      "2024-2-10": "春节", "2024-6-10": "端午", "2024-9-17": "中秋",
+      "2025-1-29": "春节", "2025-5-31": "端午", "2025-10-6": "中秋",
+      "2026-2-17": "春节", "2026-6-19": "端午", "2026-9-25": "中秋",
+    };
+
+    const holiday = specialHolidays[fullDateStr] || holidays[dateStr] || "";
+    const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+
+    return { weekName: weekNames[dayOfWeek], isWeekend, dayOfWeek, holiday };
+  };
+
+  const handleSave = () => {
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(data));
+      showNotification('视觉布局已优化并保存');
+    } catch (e) {
+      showNotification('存储容量达到上限！', true);
+    }
+  };
+
+  const showNotification = (msg) => {
+    setToastMsg(msg);
+    setShowToast(true);
+    setTimeout(() => setShowToast(false), 3000);
+  };
+
+  const handleInputChange = (day, field, value) => {
+    setData(prev => ({ ...prev, [`${day}-${field}`]: value }));
+  };
+
+  const handleImageUpload = (day, field, e) => {
+    const files = Array.from(e.target.files);
+    const imgKey = `${day}-${field}-imgs`;
+    files.forEach(file => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setData(prev => ({
+          ...prev,
+          [imgKey]: [...(prev[imgKey] || []), reader.result]
+        }));
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (day, field, index) => {
+    const imgKey = `${day}-${field}-imgs`;
+    setData(prev => {
+      const newImgs = [...(prev[imgKey] || [])];
+      newImgs.splice(index, 1);
+      return { ...prev, [imgKey]: newImgs };
+    });
+  };
+
+  const exportToCSV = () => {
+    let csvContent = "\uFEFF日期,星期,紧急度,任务布置,当日计划,完成情况,状态,请假时长\n";
+    for (let i = 1; i <= daysInMonth; i++) {
+      const info = getDayInfo(i);
+      const priority = data[`${i}-task-priority`] || 0;
+      const task = (data[`${i}-task`]||'').replace(/,/g,'，').replace(/\n/g,' ');
+      const plan = (data[`${i}-plan`]||'').replace(/,/g,'，').replace(/\n/g,' ');
+      const status = (data[`${i}-status`]||'').replace(/,/g,'，').replace(/\n/g,' ');
+      const isRest = data[`${i}-rest`] ? '休息' : '工作';
+      const start = data[`${i}-leave-start`];
+      const end = data[`${i}-leave-end`];
+      let leaveH = 0;
+      if (data[`${i}-leave`] && start && end) {
+        leaveH = (getMinutes(end) - getMinutes(start)) / 60;
+      }
+      csvContent += `${year}-${month + 1}-${i},${info.weekName},${priority}星,${task},${plan},${status},${isRest},${leaveH > 0 ? leaveH.toFixed(1) : 0}\n`;
+    }
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(blob);
+    link.setAttribute("download", `${year}年${month+1}月复盘日志.csv`);
+    link.click();
+  };
+
+  const months = ["一月", "二月", "三月", "四月", "五月", "六月", "七月", "八月", "九月", "十月", "十一月", "十二月"];
+
+  return (
+    <div className="min-h-screen bg-slate-100 p-4 md:p-8 font-sans text-slate-800">
+      <div className="max-w-full mx-auto">
+        
+        {/* Header */}
+        <div className="bg-white/90 backdrop-blur-xl rounded-[2.5rem] shadow-xl p-6 mb-8 border border-white flex flex-col xl:flex-row justify-between items-center gap-6 sticky top-0 z-50 transition-all">
+          <div className="flex items-center gap-6">
+            <div className="flex flex-col">
+              <span className="text-purple-500 text-[10px] font-black tracking-widest uppercase mb-1 flex items-center gap-1">
+                <Sparkles size={12} /> Task Priority v12.2
+              </span>
+              <div className="flex items-center gap-3">
+                <select value={year} onChange={(e) => setYear(parseInt(e.target.value))} className="bg-slate-50 border-none rounded-2xl px-4 py-2 font-black text-slate-700 hover:bg-slate-100 transition-all cursor-pointer text-sm outline-none shadow-sm">
+                  {[currentYear - 1, currentYear, currentYear + 1].map(y => <option key={y} value={y}>{y} 年</option>)}
+                </select>
+                <select value={month} onChange={(e) => setMonth(parseInt(e.target.value))} className="bg-purple-600 border-none rounded-2xl px-6 py-2 font-black text-white shadow-lg shadow-purple-200 cursor-pointer text-sm outline-none">
+                  {months.map((m, i) => <option key={i} value={i}>{m}</option>)}
+                </select>
+              </div>
+            </div>
+            <div className="h-10 w-[1px] bg-slate-200 hidden md:block"></div>
+            <div className="hidden lg:block">
+              <h1 className="text-xl font-black text-slate-900 tracking-tight text-center lg:text-left">全流程生命复盘看板</h1>
+              <p className="text-slate-400 text-xs font-medium italic">视觉权重再平衡，让专注更自然</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button onClick={handleSave} className="flex items-center gap-2 px-8 py-3 bg-slate-900 hover:bg-black text-white rounded-2xl transition-all shadow-xl hover:-translate-y-1 font-bold text-sm">
+              <Save size={18} /> 保存
+            </button>
+            <button onClick={exportToCSV} className="flex items-center gap-2 px-6 py-3 bg-white hover:bg-slate-50 text-slate-600 border border-slate-200 rounded-2xl transition-all font-bold text-sm">
+              <Download size={18} /> 导出
+            </button>
+            <button onClick={() => {if(window.confirm('清空操作不可逆，确定吗？')) {setData({}); localStorage.removeItem(storageKey);}}} className="p-3 text-slate-300 hover:text-red-500 transition-colors">
+              <Trash2 size={24} />
+            </button>
+          </div>
+        </div>
+
+        {/* Table Container */}
+        <div className="bg-white rounded-[3rem] shadow-2xl border border-slate-200 overflow-hidden mb-10 transition-all">
+          <div className="overflow-x-auto scrollbar-hide">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="sticky left-0 bg-slate-50 z-30 p-6 text-left font-black text-slate-400 border-r border-slate-200 w-48 shadow-[10px_0_20px_-10px_rgba(0,0,0,0.05)] text-xs uppercase tracking-tighter">
+                    日期 \ 维度
+                  </th>
+                  {[...Array(daysInMonth)].map((_, i) => {
+                    const info = getDayInfo(i + 1);
+                    return (
+                      <th key={i} className={`p-6 text-center border-r border-slate-100 min-w-[340px] transition-colors ${info.isWeekend ? 'bg-slate-100/30' : ''} ${info.holiday ? 'bg-red-50/20' : ''}`}>
+                        <div className="h-5 flex items-center justify-center mb-1">
+                          {info.holiday && <span className="px-2.5 py-0.5 bg-red-500 text-white text-[9px] font-black rounded-full uppercase shadow-lg shadow-red-200">{info.holiday}</span>}
+                        </div>
+                        <div className="text-3xl font-black text-slate-800 tracking-tighter">{i + 1}</div>
+                        <div className={`text-xs font-bold tracking-widest mt-1 ${info.isWeekend ? 'text-blue-400' : 'text-orange-400'}`}>{info.weekName}</div>
+                      </th>
+                    );
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                {/* 任务布置 - 紧急程度放大 + 紧凑 */}
+                <tr className="border-b border-slate-100 bg-purple-50/5">
+                  <td className="sticky left-0 bg-white z-20 p-6 border-r border-slate-200 font-black shadow-[10px_0_20px_-10px_rgba(0,0,0,0.05)] text-sm text-purple-600">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex items-center gap-2">
+                        <Inbox size={16} /> 任务布置
+                      </div>
+                      <span className="text-[10px] text-slate-300 font-medium tracking-tighter uppercase opacity-70">External Inputs</span>
+                    </div>
+                  </td>
+                  {[...Array(daysInMonth)].map((_, i) => (
+                    <td key={i} className={`p-4 border-r border-slate-50 align-top transition-all relative ${data[`${i + 1}-rest`] ? 'bg-slate-50/95 opacity-20 grayscale' : (getDayInfo(i+1).isWeekend ? 'bg-slate-100/30' : '')}`}>
+                      <div className="flex flex-col gap-2 h-full">
+                        {/* 放大版紧急程度星星 */}
+                        <div className="flex items-center gap-2 mb-1 p-1 bg-white/50 rounded-lg w-fit">
+                          {[1, 2, 3].map(star => (
+                            <button
+                              key={star}
+                              disabled={data[`${i + 1}-rest`]}
+                              onClick={() => handleInputChange(i + 1, 'task-priority', star)}
+                              className="focus:outline-none transition-transform hover:scale-110 active:scale-95 disabled:cursor-not-allowed"
+                            >
+                              <Star 
+                                size={20} 
+                                className={`${(data[`${i + 1}-task-priority`] || 0) >= star ? 'fill-amber-400 text-amber-400' : 'text-slate-200'}`} 
+                              />
+                            </button>
+                          ))}
+                          <span className="text-[9px] font-black text-slate-400 ml-1 uppercase tracking-tighter">重要性</span>
+                        </div>
+                        <textarea
+                          className={`w-full h-20 p-3 text-sm bg-transparent border-none focus:ring-2 focus:ring-purple-100 rounded-xl resize-none placeholder:text-slate-200 transition-all text-slate-600 font-bold leading-relaxed outline-none`}
+                          placeholder={data[`${i + 1}-rest`] ? "" : "外部待办记录..."}
+                          value={data[`${i + 1}-task`] || ''}
+                          disabled={data[`${i + 1}-rest`]}
+                          onChange={(e) => handleInputChange(i + 1, 'task', e.target.value)}
+                        />
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+
+                {/* 计划 - 占位缩小 */}
+                <tr className="border-b border-slate-100">
+                  <td className="sticky left-0 bg-white z-20 p-6 border-r border-slate-200 font-black shadow-[10px_0_20px_-10px_rgba(0,0,0,0.05)] text-sm text-blue-600">
+                    <div className="flex items-center gap-2">
+                      <ClipboardList size={18} /> 当日计划
+                    </div>
+                  </td>
+                  {[...Array(daysInMonth)].map((_, i) => (
+                    <Cell 
+                      key={i} day={i+1} field="plan" data={data} 
+                      onInputChange={handleInputChange} 
+                      onImageUpload={handleImageUpload}
+                      onRemoveImage={removeImage}
+                      onPreview={setPreviewImage}
+                      isWeekend={getDayInfo(i+1).isWeekend}
+                      placeholder="核心计划..."
+                      accentColor="blue"
+                    />
+                  ))}
+                </tr>
+
+                {/* 复盘 - 占位缩小 */}
+                <tr className="border-b border-slate-100">
+                  <td className="sticky left-0 bg-white z-20 p-6 border-r border-slate-200 font-black shadow-[10px_0_20px_-10px_rgba(0,0,0,0.05)] text-sm text-emerald-600">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 size={18} /> 完成情况
+                    </div>
+                  </td>
+                  {[...Array(daysInMonth)].map((_, i) => (
+                    <Cell 
+                      key={i} day={i+1} field="status" data={data} 
+                      onInputChange={handleInputChange} 
+                      onImageUpload={handleImageUpload}
+                      onRemoveImage={removeImage}
+                      onPreview={setPreviewImage}
+                      isWeekend={getDayInfo(i+1).isWeekend}
+                      placeholder="成果与反思..."
+                      accentColor="emerald"
+                    />
+                  ))}
+                </tr>
+
+                {/* 状态 */}
+                <tr className="bg-slate-50/10 border-b border-slate-50">
+                  <td className="sticky left-0 bg-slate-50/80 z-20 p-6 border-r border-slate-200 font-black shadow-[10px_0_20px_-10px_rgba(0,0,0,0.05)] text-xs text-orange-500 uppercase">休息状态</td>
+                  {[...Array(daysInMonth)].map((_, i) => (
+                    <td key={i} className={`px-6 py-4 border-r border-slate-50 text-center transition-all ${data[`${i + 1}-rest`] ? 'bg-orange-50/30' : ''}`}>
+                      <label className="inline-flex items-center cursor-pointer relative group">
+                        <input type="checkbox" className="sr-only peer" checked={data[`${i + 1}-rest`] || false} onChange={(e) => handleInputChange(i + 1, 'rest', e.target.checked)} />
+                        <div className="w-12 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-orange-500 shadow-inner"></div>
+                        <span className="ml-3 text-xs font-black text-slate-400 peer-checked:text-orange-600 transition-colors uppercase">
+                          {data[`${i + 1}-rest`] ? '已休息' : '工作中'}
+                        </span>
+                      </label>
+                    </td>
+                  ))}
+                </tr>
+
+                {/* 请假 */}
+                <tr className="bg-indigo-50/5">
+                  <td className="sticky left-0 bg-indigo-50/10 z-20 p-6 border-r border-slate-200 font-black shadow-[10px_0_20px_-10px_rgba(0,0,0,0.05)] text-xs text-indigo-500 uppercase">请假 / 调休</td>
+                  {[...Array(daysInMonth)].map((_, i) => (
+                    <td key={i} className={`px-6 py-4 border-r border-slate-50 transition-all ${data[`${i + 1}-leave`] ? 'bg-indigo-50/40 shadow-inner' : ''}`}>
+                      <div className="flex flex-col gap-3">
+                        <div className="flex items-center justify-between">
+                          <label className="flex items-center gap-2 cursor-pointer group">
+                            <input type="checkbox" className="w-5 h-5 rounded-lg border-slate-300 text-indigo-600 focus:ring-indigo-500 transition-all" checked={data[`${i + 1}-leave`] || false} onChange={(e) => handleInputChange(i + 1, 'leave', e.target.checked)} />
+                            <span className="text-[10px] font-black text-slate-400 group-hover:text-indigo-400 uppercase tracking-widest transition-colors">开启记录</span>
+                          </label>
+                          {data[`${i + 1}-leave`] && (
+                            <span className="text-[10px] font-black text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-md">
+                              {data[`${i + 1}-leave-start`] && data[`${i + 1}-leave-end`] ? 
+                                `+ ${(getMinutes(data[`${i + 1}-leave-end`]) - getMinutes(data[`${i + 1}-leave-start`])) / 60 > 0 ? ((getMinutes(data[`${i + 1}-leave-end`]) - getMinutes(data[`${i + 1}-leave-start`])) / 60).toFixed(1) : 0} h` 
+                                : '等待时间'}
+                            </span>
+                          )}
+                        </div>
+                        
+                        {data[`${i + 1}-leave`] && (
+                          <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+                            <div className="flex items-center gap-2 bg-white/60 p-1.5 rounded-2xl border border-indigo-100">
+                              <div className="relative flex-1 group">
+                                <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-400 group-focus-within:text-indigo-600 transition-colors" />
+                                <input 
+                                  type="time" 
+                                  className="w-full pl-8 pr-2 py-1.5 bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer"
+                                  value={data[`${i + 1}-leave-start`] || ''}
+                                  onChange={(e) => handleInputChange(i + 1, 'leave-start', e.target.value)}
+                                />
+                              </div>
+                              <ArrowRight size={14} className="text-slate-300 shrink-0" />
+                              <div className="relative flex-1 group">
+                                <Clock size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-indigo-400 group-focus-within:text-indigo-600 transition-colors" />
+                                <input 
+                                  type="time" 
+                                  className="w-full pl-8 pr-2 py-1.5 bg-transparent text-xs font-black text-slate-700 outline-none cursor-pointer"
+                                  value={data[`${i + 1}-leave-end`] || ''}
+                                  onChange={(e) => handleInputChange(i + 1, 'leave-end', e.target.value)}
+                                />
+                              </div>
+                            </div>
+                            <div className="relative group">
+                              <FileText size={12} className="absolute left-3 top-3 text-indigo-300 group-focus-within:text-indigo-500 transition-colors" />
+                              <textarea 
+                                className="w-full pl-9 pr-3 py-2 bg-white/60 border border-indigo-50 rounded-2xl text-[10px] font-medium text-slate-500 outline-none h-14 resize-none placeholder:text-slate-300 focus:ring-2 focus:ring-indigo-100 transition-all"
+                                placeholder="补充说明..." 
+                                value={data[`${i + 1}-leave-desc`] || ''} 
+                                onChange={(e) => handleInputChange(i + 1, 'leave-desc', e.target.value)}
+                              />
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* 仪表盘 */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8 mb-12">
+          <StatCard icon={<Coffee />} title="累计休息" value={stats.restDays} unit="天" color="orange" />
+          <StatCard icon={<UserCheck />} title="请假统计" value={stats.leaveHours} unit="小时" color="indigo" />
+          <StatCard icon={<TrendingUp />} title="核心任务执行率" value={`${Math.round(((daysInMonth - stats.restDays) / daysInMonth) * 100)}%`} unit="" color="blue" />
+          <div className="bg-slate-900 rounded-[2.5rem] p-8 shadow-2xl flex items-center gap-6 transition-all hover:scale-[1.03] group">
+            <div className="p-5 bg-white/10 text-emerald-400 rounded-3xl group-hover:bg-emerald-500 group-hover:text-white transition-all"><Zap size={32} /></div>
+            <div>
+              <div className="text-slate-500 text-[10px] font-black uppercase tracking-widest mb-1">健康状态</div>
+              <div className="text-xl font-black text-white leading-tight">{stats.restDays >= 8 ? "电力满格" : "建议留白"}</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex flex-col md:flex-row gap-6 items-center justify-between opacity-30 px-8 mb-10 text-slate-500">
+           <div className="flex gap-6 text-[10px] font-black uppercase tracking-[0.3em]">
+             <span className="flex items-center gap-2 underline decoration-purple-500 decoration-2 underline-offset-4 tracking-tighter">UI 优化：紧急度放大，计划行紧凑化</span>
+             <span>Time Auditor v12.2</span>
+           </div>
+           <p className="text-[10px] font-black italic tracking-widest">“Visualize priority, focus on results.”</p>
+        </div>
+
+        {/* Lightbox */}
+        {previewImage && (
+          <div className="fixed inset-0 z-[100] bg-slate-900/98 backdrop-blur-3xl flex items-center justify-center p-12 cursor-zoom-out animate-in fade-in duration-500" onClick={() => setPreviewImage(null)}>
+            <img src={previewImage} alt="Preview" className="max-w-full max-h-full rounded-[3rem] shadow-2xl object-contain animate-in zoom-in-95 duration-700 shadow-white/5" />
+          </div>
+        )}
+
+        {/* Toast */}
+        {showToast && (
+          <div className="fixed bottom-12 left-1/2 transform -translate-x-1/2 bg-slate-950 text-white px-12 py-5 rounded-[2.5rem] shadow-2xl flex items-center gap-4 z-[110] animate-in slide-in-from-bottom-12">
+            <CheckCircle2 size={24} className="text-emerald-400" />
+            <span className="font-black text-sm tracking-widest">{toastMsg}</span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const StatCard = ({ icon, title, value, unit, color }) => {
+  const colorMap = {
+    orange: "bg-orange-50 text-orange-600 shadow-orange-100",
+    indigo: "bg-indigo-50 text-indigo-600 shadow-indigo-100",
+    blue: "bg-blue-50 text-blue-600 shadow-blue-100"
+  };
+  return (
+    <div className="bg-white rounded-[2.5rem] p-8 border border-slate-100 shadow-lg flex items-center gap-8 transition-all hover:shadow-2xl hover:-translate-y-2 group">
+      <div className={`p-6 rounded-3xl ${colorMap[color]} group-hover:scale-110 transition-transform`}>{React.cloneElement(icon, { size: 34 })}</div>
+      <div>
+        <div className="text-slate-400 text-[10px] font-black uppercase tracking-widest mb-2">{title}</div>
+        <div className="text-4xl font-black text-slate-900 leading-none">{value} <span className="text-base font-bold text-slate-300">{unit}</span></div>
+      </div>
+    </div>
+  );
+};
+
+const Cell = ({ day, field, data, onInputChange, onImageUpload, onRemoveImage, onPreview, placeholder, isWeekend, accentColor = "blue" }) => {
+  const isRest = data[`${day}-rest`];
+  const imgsKey = `${day}-${field}-imgs`;
+  const textKey = `${day}-${field}`;
+  const images = data[imgsKey] || [];
+
+  const focusRingColor = {
+    blue: "focus:ring-blue-100",
+    purple: "focus:ring-purple-100",
+    emerald: "focus:ring-emerald-100"
+  }[accentColor];
+
+  return (
+    <td className={`p-4 border-r border-slate-50 align-top transition-all relative min-h-[240px] ${isRest ? 'bg-slate-50/95 opacity-20 grayscale cursor-not-allowed' : (isWeekend ? 'bg-slate-100/30' : '')}`}>
+      <textarea
+        className={`w-full h-32 p-3 text-sm bg-transparent border-none focus:ring-4 ${focusRingColor} rounded-[1.5rem] resize-none placeholder:text-slate-200 transition-all text-slate-700 font-bold leading-relaxed mb-4 outline-none`}
+        placeholder={isRest ? "已休息" : placeholder}
+        value={data[textKey] || ''}
+        disabled={isRest}
+        onChange={(e) => onInputChange(day, field, e.target.value)}
+      />
+      <div className="flex flex-wrap gap-3">
+        {images.map((img, idx) => (
+          <div key={idx} className="relative group w-14 h-14 rounded-[1rem] overflow-hidden border-2 border-white shadow-lg transition-all hover:scale-110">
+            <img src={img} alt="upload" className="w-full h-full object-cover cursor-pointer" onClick={() => onPreview(img)} />
+            <button onClick={(e) => { e.stopPropagation(); onRemoveImage(day, field, idx); }} className="absolute -top-1 -right-1 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 scale-75 shadow-lg"><X size={12} /></button>
+          </div>
+        ))}
+        {!isRest && (
+          <label className={`flex items-center justify-center w-14 h-14 rounded-[1rem] bg-slate-50 text-slate-200 hover:bg-${accentColor}-50 hover:text-${accentColor}-500 transition-all cursor-pointer border-2 border-dashed border-slate-200`}>
+            <ImageIcon size={20} />
+            <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onImageUpload(day, field, e)} />
+          </label>
+        )}
+      </div>
+    </td>
+  );
+};
+
+export default App;
